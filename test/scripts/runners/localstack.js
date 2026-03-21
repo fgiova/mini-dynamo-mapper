@@ -1,6 +1,73 @@
-// LocalStack runner helper
+const { DynamoDB } = require("@aws-sdk/client-dynamodb");
+const { GenericContainer, Wait } = require("testcontainers");
+
+const startLocalStack = async () => {
+	const localStack = await new GenericContainer("localstack/localstack:latest")
+		.withLabels({
+			"org.testcontainers.reaper-session-id": process.env.REAPER_SESSION_ID,
+		})
+		.withExposedPorts(4566)
+		.withEnvironment({
+			SERVICES: "dynamodb",
+			DEBUG: "1",
+			DOCKER_HOST: "unix:///var/run/docker.sock",
+			NODE_TLS_REJECT_UNAUTHORIZED: "0",
+			HOSTNAME: "localhost",
+			AWS_DEFAULT_REGION: "eu-central-1",
+		})
+		.withBindMounts([
+			{
+				source: "/var/run/docker.sock",
+				target: "/var/run/docker.sock",
+			},
+		])
+		.withWaitStrategy(Wait.forListeningPorts())
+		.start();
+	const port = localStack.getMappedPort(4566);
+	const host = localStack.getHost();
+	process.env.AWS_REGION = "eu-central-1";
+	process.env.AWS_ACCESS_KEY_ID = "AWS_ACCESS_KEY_ID";
+	process.env.AWS_SECRET_ACCESS_KEY = "AWS_SECRET_ACCESS_KEY";
+	return {
+		container: localStack,
+		port,
+		host,
+	};
+};
+
+const bootstrap = async (host, port) => {
+	console.log("Bootstrap DynamoDB");
+	const dynamodb = new DynamoDB({
+		endpoint: `http://${host}:${port}`,
+	});
+
+	await dynamodb.createTable({
+		TableName: "TestTable",
+		KeySchema: [
+			{ AttributeName: "pk", KeyType: "HASH" },
+			{ AttributeName: "sk", KeyType: "RANGE" },
+		],
+		AttributeDefinitions: [
+			{ AttributeName: "pk", AttributeType: "S" },
+			{ AttributeName: "sk", AttributeType: "S" },
+			{ AttributeName: "name", AttributeType: "S" },
+		],
+		GlobalSecondaryIndexes: [
+			{
+				IndexName: "name-index",
+				KeySchema: [{ AttributeName: "name", KeyType: "HASH" }],
+				Projection: { ProjectionType: "ALL" },
+				ProvisionedThroughput: {
+					ReadCapacityUnits: 5,
+					WriteCapacityUnits: 5,
+				},
+			},
+		],
+		BillingMode: "PAY_PER_REQUEST",
+	});
+};
+
 module.exports = {
-	getEndpoint() {
-		return process.env.LOCALSTACK_ENDPOINT ?? "http://localhost:4566";
-	},
+	startLocalStack,
+	bootstrap,
 };

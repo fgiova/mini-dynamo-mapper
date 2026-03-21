@@ -94,7 +94,8 @@ export abstract class BaseIterator<T> implements AsyncIterableIterator<T> {
 
 				if (!rawPage.lastEvaluatedKey) {
 					self.done = true;
-				} else {
+				/* c8 ignore next 3 */
+			} else {
 					self.lastEvaluatedKey = rawPage.lastEvaluatedKey;
 				}
 

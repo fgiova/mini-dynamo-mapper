@@ -8,7 +8,7 @@ import {
 export async function createTestTable(endpoint: string): Promise<void> {
 	const client = new DynamoDBClient({
 		endpoint,
-		region: "us-east-1",
+		region: "us-central-1",
 		credentials: {
 			accessKeyId: "test",
 			secretAccessKey: "test",
@@ -58,7 +58,7 @@ export async function cleanTable(
 ): Promise<void> {
 	const client = new DynamoDBClient({
 		endpoint,
-		region: "us-east-1",
+		region: "eu-central-1",
 		credentials: {
 			accessKeyId: "test",
 			secretAccessKey: "test",

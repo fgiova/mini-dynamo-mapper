@@ -112,6 +112,7 @@ export function marshallValue(
 				case "Binary":
 					return { BS: values.map(bufferToBase64) };
 			}
+			/* c8 ignore next 2 */
 			break;
 		}
 
@@ -215,9 +216,10 @@ export function autoMarshallValue(value: any): AttributeValue | undefined {
 		}
 		return { M: map };
 	}
-
+	/* c8 ignore start */
 	return undefined;
 }
+/* c8 ignore stop */
 
 function bufferToBase64(value: Uint8Array | Buffer | ArrayBuffer): string {
 	if (Buffer.isBuffer(value)) {

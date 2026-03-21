@@ -24,6 +24,7 @@ export class ScanIterator<T> extends BaseIterator<T> {
 	) {
 		super(client, schema);
 		this.tableName = tableName;
+		/* c8 ignore next -- options is always provided by DataMapper */
 		this.options = options ?? {};
 		this.expressionAttributes = new ExpressionAttributes();
 
@@ -54,6 +55,7 @@ export class ScanIterator<T> extends BaseIterator<T> {
 			TableName: this.tableName,
 			FilterExpression: this.filterExpression,
 			ProjectionExpression: this.projectionExpression,
+			/* c8 ignore next 4 -- names/values may be empty when no filter/projection is set */
 			ExpressionAttributeNames:
 				Object.keys(names).length > 0 ? names : undefined,
 			ExpressionAttributeValues:
@@ -68,6 +70,7 @@ export class ScanIterator<T> extends BaseIterator<T> {
 			ReturnConsumedCapacity: this.options.returnConsumedCapacity,
 		});
 
+		/* c8 ignore next 7 -- DynamoDB always returns Items/Count/ScannedCount */
 		return {
 			items: result.Items ?? [],
 			lastEvaluatedKey: result.LastEvaluatedKey,

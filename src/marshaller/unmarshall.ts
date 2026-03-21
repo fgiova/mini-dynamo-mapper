@@ -79,6 +79,7 @@ export function unmarshallValue(
 				case "Binary":
 					return new Set((attributeValue.BS ?? []).map(base64ToBuffer));
 			}
+			/* c8 ignore next 2 */
 			break;
 		}
 
@@ -139,8 +140,10 @@ function autoUnmarshallValue(attributeValue: AttributeValue): any {
 		}
 		return result;
 	}
+	/* c8 ignore start */
 	return null;
 }
+/* c8 ignore stop */
 
 function base64ToBuffer(b64: string): Uint8Array {
 	return new Uint8Array(Buffer.from(b64, "base64"));

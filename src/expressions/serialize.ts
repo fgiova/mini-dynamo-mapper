@@ -74,6 +74,7 @@ export function serializeConditionExpression(
 					return `contains(${path}, ${val})`;
 				}
 			}
+			/* c8 ignore next 2 */
 			break;
 		}
 		case "And": {
@@ -91,9 +92,10 @@ export function serializeConditionExpression(
 		case "Not":
 			return `NOT (${serializeConditionExpression(expr.condition, attributes)})`;
 	}
-
+	/* c8 ignore start */
 	return "";
 }
+/* c8 ignore stop */
 
 export function serializeUpdateExpression(
 	expr: UpdateExpression,

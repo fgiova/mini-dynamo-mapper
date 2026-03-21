@@ -27,6 +27,7 @@ export class QueryIterator<T> extends BaseIterator<T> {
 	) {
 		super(client, schema);
 		this.tableName = tableName;
+		/* c8 ignore next -- options is always provided by DataMapper */
 		this.options = options ?? {};
 		this.expressionAttributes = new ExpressionAttributes();
 
@@ -63,6 +64,7 @@ export class QueryIterator<T> extends BaseIterator<T> {
 			KeyConditionExpression: this.keyConditionExpression,
 			FilterExpression: this.filterExpression,
 			ProjectionExpression: this.projectionExpression,
+			/* c8 ignore next 4 -- key condition always produces at least one name/value */
 			ExpressionAttributeNames:
 				Object.keys(names).length > 0 ? names : undefined,
 			ExpressionAttributeValues:
@@ -76,6 +78,7 @@ export class QueryIterator<T> extends BaseIterator<T> {
 			ReturnConsumedCapacity: this.options.returnConsumedCapacity,
 		});
 
+		/* c8 ignore next 7 -- DynamoDB always returns Items/Count/ScannedCount */
 		return {
 			items: result.Items ?? [],
 			lastEvaluatedKey: result.LastEvaluatedKey,

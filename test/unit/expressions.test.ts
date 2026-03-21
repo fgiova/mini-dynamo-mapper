@@ -1,6 +1,6 @@
 import { test } from "tap";
-import { ExpressionAttributes } from "../../src/expressions/attributes";
 import {
+	add,
 	and,
 	attributeExists,
 	attributeNotExists,
@@ -8,34 +8,30 @@ import {
 	beginsWith,
 	between,
 	contains,
+	decrement,
+	deleteFromSet,
+	ExpressionAttributes,
 	equals,
 	greaterThan,
 	greaterThanOrEqual,
+	ifNotExists,
+	increment,
 	inList,
 	lessThan,
 	lessThanOrEqual,
+	listAppend,
+	listPrepend,
 	not,
 	notEquals,
 	or,
-} from "../../src/expressions/condition";
-import { projection } from "../../src/expressions/projection";
-import {
+	projection,
+	remove,
 	serializeConditionExpression,
 	serializeProjectionExpression,
 	serializeUpdateExpression,
-} from "../../src/expressions/serialize";
-import {
-	add,
-	decrement,
-	deleteFromSet,
-	ifNotExists,
-	increment,
-	listAppend,
-	listPrepend,
-	remove,
 	set,
 	updateExpression,
-} from "../../src/expressions/update";
+} from "../../src";
 
 // === Condition Factory Tests ===
 
@@ -383,4 +379,114 @@ test("serialize projection", async (t) => {
 	t.ok(result.includes(","));
 	const parts = result.split(", ");
 	t.equal(parts.length, 3);
+});
+
+// === Missing coverage: serialize if_not_exists and list_append ===
+
+test("serialize SET with if_not_exists", async (t) => {
+	const attrs = new ExpressionAttributes();
+	const expr = updateExpression(set("count", ifNotExists("count", 0)));
+	const result = serializeUpdateExpression(expr, attrs);
+	t.ok(result.includes("SET"));
+	t.ok(result.includes("if_not_exists"));
+});
+
+test("serialize SET with list_append", async (t) => {
+	const attrs = new ExpressionAttributes();
+	const expr = updateExpression(set("items", listAppend("items", ["new"])));
+	const result = serializeUpdateExpression(expr, attrs);
+	t.ok(result.includes("SET"));
+	t.ok(result.includes("list_append"));
+});
+
+test("serialize SET with list_prepend", async (t) => {
+	const attrs = new ExpressionAttributes();
+	const expr = updateExpression(set("items", listPrepend("items", ["new"])));
+	const result = serializeUpdateExpression(expr, attrs);
+	t.ok(result.includes("list_append"));
+});
+
+test("serialize decrement update", async (t) => {
+	const attrs = new ExpressionAttributes();
+	const expr = updateExpression(decrement("count", 3));
+	const result = serializeUpdateExpression(expr, attrs);
+	t.ok(result.includes("SET"));
+	t.ok(result.includes("-"));
+});
+
+test("serialize attribute_type", async (t) => {
+	const attrs = new ExpressionAttributes();
+	const result = serializeConditionExpression(
+		attributeType("data", "S"),
+		attrs,
+	);
+	t.ok(result.includes("attribute_type"));
+});
+
+test("serialize greaterThan", async (t) => {
+	const attrs = new ExpressionAttributes();
+	const result = serializeConditionExpression(greaterThan("age", 18), attrs);
+	t.ok(result.includes(">"));
+	t.notOk(result.includes(">="));
+});
+
+test("serialize greaterThanOrEqual", async (t) => {
+	const attrs = new ExpressionAttributes();
+	const result = serializeConditionExpression(
+		greaterThanOrEqual("age", 18),
+		attrs,
+	);
+	t.ok(result.includes(">="));
+});
+
+test("serialize lessThanOrEqual", async (t) => {
+	const attrs = new ExpressionAttributes();
+	const result = serializeConditionExpression(
+		lessThanOrEqual("age", 18),
+		attrs,
+	);
+	t.ok(result.includes("<="));
+});
+
+test("serialize SET with if_not_exists non-string first arg", async (t) => {
+	const attrs = new ExpressionAttributes();
+	const expr = updateExpression(
+		set("count", {
+			type: "FunctionExpression",
+			name: "if_not_exists",
+			args: [42, 0],
+		} as any),
+	);
+	const result = serializeUpdateExpression(expr, attrs);
+	t.ok(result.includes("if_not_exists"));
+});
+
+test("serialize SET with list_append both arrays", async (t) => {
+	const attrs = new ExpressionAttributes();
+	const expr = updateExpression(
+		set("items", {
+			type: "FunctionExpression",
+			name: "list_append",
+			args: [["a"], ["b"]],
+		} as any),
+	);
+	const result = serializeUpdateExpression(expr, attrs);
+	t.ok(result.includes("list_append"));
+});
+
+test("serialize MathematicalExpression with numeric operand1", async (t) => {
+	const attrs = new ExpressionAttributes();
+	const expr = updateExpression({
+		type: "Set",
+		path: "count",
+		value: {
+			type: "MathematicalExpression",
+			operand1: 10,
+			operation: "-",
+			operand2: "discount",
+		},
+	} as any);
+	const result = serializeUpdateExpression(expr, attrs);
+	t.ok(result.includes("SET"));
+	t.ok(result.includes("-"));
 });

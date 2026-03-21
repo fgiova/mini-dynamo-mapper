@@ -1,19 +1,16 @@
-import { Signer } from "@fgiova/aws-signature";
+import "../helpers/localtest";
 import { MiniDynamoClient } from "@fgiova/mini-dynamo-client";
-import { test } from "tap";
-import { equals } from "../../src/expressions/condition";
-import { set, updateExpression } from "../../src/expressions/update";
-import { DataMapper } from "../../src/mapper/data-mapper";
-import { defineModel } from "../../src/model";
+import { before, teardown, test } from "tap";
+import {
+	DataMapper,
+	defineModel,
+	equals,
+	set,
+	updateExpression,
+} from "../../src";
 import { cleanTable } from "../helpers/dynamoTable";
-import { getEndpoint } from "../helpers/localtest";
 
-const endpoint = getEndpoint();
-
-if (!process.env.LOCALSTACK_ENDPOINT && !process.env.TEST_LOCAL) {
-	console.log("Skipping integration tests - no LOCALSTACK_ENDPOINT set");
-	process.exit(0);
-}
+const endpoint = process.env.LOCALSTACK_ENDPOINT as string;
 
 const UserModel = defineModel({
 	tableName: "TestTable",
@@ -35,17 +32,16 @@ const UserModel = defineModel({
 	},
 } as const);
 
-let signer: Signer;
 let client: MiniDynamoClient;
 let mapper: DataMapper;
 
-test("setup", async (_t) => {
-	signer = new Signer({
-		accessKeyId: "test",
-		secretAccessKey: "test",
-	});
-	client = new MiniDynamoClient("us-east-1", endpoint, undefined, signer);
+before(async () => {
+	client = new MiniDynamoClient("eu-central-1", endpoint);
 	mapper = new DataMapper({ client });
+});
+
+teardown(async () => {
+	await client?.destroy();
 });
 
 test("CRUD lifecycle", async (t) => {
@@ -255,7 +251,277 @@ test("transactions", async (t) => {
 	t.equal(results[1].name, "TxUser2");
 });
 
-test("teardown", async (_t) => {
-	await client.destroy();
-	await signer.destroy();
+test("parallel scan", async (t) => {
+	await cleanTable(endpoint, "TestTable");
+
+	// Insert items for parallel scan
+	for (let i = 0; i < 10; i++) {
+		await mapper.put(
+			UserModel,
+			{
+				pk: `PSCAN#${i}`,
+				sk: "ITEM",
+				name: `User${i}`,
+				age: 20 + i,
+			} as any,
+			{ skipVersionCheck: true },
+		);
+	}
+
+	const items: any[] = [];
+	for await (const item of mapper.parallelScan(UserModel, 2)) {
+		items.push(item);
+	}
+	t.equal(items.length, 10);
+});
+
+test("batchWrite mixed put and delete", async (t) => {
+	await cleanTable(endpoint, "TestTable");
+
+	// First put some items
+	for (let i = 0; i < 3; i++) {
+		await mapper.put(
+			UserModel,
+			{
+				pk: `BW#${i}`,
+				sk: "ITEM",
+				name: `User${i}`,
+				age: 20 + i,
+			} as any,
+			{ skipVersionCheck: true },
+		);
+	}
+
+	// batchWrite: put new + delete existing
+	const ops: any[] = [];
+	for await (const op of mapper.batchWrite(UserModel, [
+		{
+			type: "put",
+			item: { pk: "BW#NEW1", sk: "ITEM", name: "New1", age: 30 } as any,
+		},
+		{
+			type: "put",
+			item: { pk: "BW#NEW2", sk: "ITEM", name: "New2", age: 31 } as any,
+		},
+		{ type: "delete", key: { pk: "BW#0", sk: "ITEM" } as any },
+		{ type: "delete", key: { pk: "BW#1", sk: "ITEM" } as any },
+	])) {
+		ops.push(op);
+	}
+	t.equal(ops.length, 4);
+
+	// Verify: BW#0 and BW#1 deleted, BW#2 still exists, NEW1 and NEW2 created
+	const deleted0 = await mapper.get(UserModel, {
+		pk: "BW#0",
+		sk: "ITEM",
+	} as any);
+	t.equal(deleted0, undefined);
+
+	const kept2 = await mapper.get(UserModel, { pk: "BW#2", sk: "ITEM" } as any);
+	t.ok(kept2);
+
+	const new1 = await mapper.get(UserModel, {
+		pk: "BW#NEW1",
+		sk: "ITEM",
+	} as any);
+	t.ok(new1);
+	t.equal(new1!.name, "New1");
+});
+
+test("transactWrite with Update", async (t) => {
+	await cleanTable(endpoint, "TestTable");
+
+	// First insert an item
+	await mapper.put(
+		UserModel,
+		{
+			pk: "TXU#1",
+			sk: "PROFILE",
+			name: "Original",
+			age: 30,
+		} as any,
+		{ skipVersionCheck: true },
+	);
+
+	// TransactWrite with Update
+	await mapper.transactWrite([
+		{
+			type: "Update",
+			model: UserModel,
+			key: { pk: "TXU#1", sk: "PROFILE" } as any,
+			updates: updateExpression(set("name", "Updated"), set("age", 99)),
+		},
+	]);
+
+	const result = await mapper.get(UserModel, {
+		pk: "TXU#1",
+		sk: "PROFILE",
+	} as any);
+	t.ok(result);
+	t.equal(result!.name, "Updated");
+	t.equal(result!.age, 99);
+});
+
+test("transactWrite with Delete + condition", async (t) => {
+	await cleanTable(endpoint, "TestTable");
+
+	// Insert item
+	await mapper.put(
+		UserModel,
+		{
+			pk: "TXD#1",
+			sk: "PROFILE",
+			name: "ToDelete",
+			age: 40,
+		} as any,
+		{ skipVersionCheck: true },
+	);
+
+	// TransactWrite Delete with condition
+	await mapper.transactWrite([
+		{
+			type: "Delete",
+			model: UserModel,
+			key: { pk: "TXD#1", sk: "PROFILE" } as any,
+			condition: equals("name", "ToDelete"),
+		},
+	]);
+
+	const result = await mapper.get(UserModel, {
+		pk: "TXD#1",
+		sk: "PROFILE",
+	} as any);
+	t.equal(result, undefined);
+});
+
+test("query with filter", async (t) => {
+	await cleanTable(endpoint, "TestTable");
+
+	for (let i = 0; i < 5; i++) {
+		await mapper.put(
+			UserModel,
+			{
+				pk: "QF#1",
+				sk: `ITEM#${String(i).padStart(3, "0")}`,
+				name: `User${i}`,
+				age: 20 + i,
+			} as any,
+			{ skipVersionCheck: true },
+		);
+	}
+
+	// Query with filter: age > 22
+	const items: any[] = [];
+	for await (const item of mapper.query(UserModel, equals("pk", "QF#1"), {
+		filter: {
+			type: "Simple",
+			subject: "age",
+			predicate: { type: "GreaterThan", value: 22 },
+		},
+	})) {
+		items.push(item);
+	}
+	t.equal(items.length, 2); // age 23 and 24
+});
+
+test("scan with filter", async (t) => {
+	// Uses items from previous test if table not cleaned
+	await cleanTable(endpoint, "TestTable");
+
+	for (let i = 0; i < 5; i++) {
+		await mapper.put(
+			UserModel,
+			{
+				pk: `SF#${i}`,
+				sk: "ITEM",
+				name: `User${i}`,
+				age: 20 + i,
+			} as any,
+			{ skipVersionCheck: true },
+		);
+	}
+
+	const items: any[] = [];
+	for await (const item of mapper.scan(UserModel, {
+		filter: {
+			type: "Simple",
+			subject: "age",
+			predicate: { type: "GreaterThanOrEqual", value: 23 },
+		},
+	})) {
+		items.push(item);
+	}
+	t.equal(items.length, 2); // age 23 and 24
+});
+
+test("get with projection", async (t) => {
+	await cleanTable(endpoint, "TestTable");
+
+	await mapper.put(
+		UserModel,
+		{
+			pk: "PROJ#1",
+			sk: "PROFILE",
+			name: "John",
+			age: 30,
+			email: "john@example.com",
+		} as any,
+		{ skipVersionCheck: true },
+	);
+
+	const result = await mapper.get(
+		UserModel,
+		{ pk: "PROJ#1", sk: "PROFILE" } as any,
+		{ projection: ["name", "age"] },
+	);
+	t.ok(result);
+	t.equal(result!.name, "John");
+	t.equal(result!.age, 30);
+	// email should not be returned (or at least projection was applied)
+});
+
+test("transactWrite with ConditionCheck failure", async (t) => {
+	await cleanTable(endpoint, "TestTable");
+
+	await mapper.put(
+		UserModel,
+		{
+			pk: "CC#1",
+			sk: "PROFILE",
+			name: "John",
+			age: 30,
+		} as any,
+		{ skipVersionCheck: true },
+	);
+
+	try {
+		await mapper.transactWrite([
+			{
+				type: "ConditionCheck",
+				model: UserModel,
+				key: { pk: "CC#1", sk: "PROFILE" } as any,
+				condition: equals("name", "WRONG"),
+			},
+			{
+				type: "Put",
+				model: UserModel,
+				item: {
+					pk: "CC#2",
+					sk: "PROFILE",
+					name: "Should not be created",
+					age: 25,
+				} as any,
+			},
+		]);
+		t.fail("Should have thrown");
+	} catch (e: any) {
+		t.ok(e.message);
+	}
+
+	// Verify CC#2 was not created
+	const result = await mapper.get(UserModel, {
+		pk: "CC#2",
+		sk: "PROFILE",
+	} as any);
+	t.equal(result, undefined);
 });

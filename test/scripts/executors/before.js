@@ -1,68 +1,44 @@
-const { GenericContainer, Wait } = require("testcontainers");
+const { startLocalStack, bootstrap } = require("../runners/localstack");
+const { writeFile } = require("node:fs/promises");
+const { getReaper } = require("testcontainers/build/reaper/reaper");
+const {
+	getContainerRuntimeClient,
+} = require("testcontainers/build/container-runtime/clients/client");
 
-module.exports = async () => {
-	if (process.env.TEST_LOCAL) {
-		return;
-	}
-
-	const container = await new GenericContainer("localstack/localstack:latest")
-		.withExposedPorts(4566)
-		.withEnvironment({
-			SERVICES: "dynamodb",
-			DEFAULT_REGION: "us-east-1",
-		})
-		.withWaitStrategy(Wait.forLogMessage("Ready."))
-		.start();
-
-	const port = container.getMappedPort(4566);
-	const host = container.getHost();
-
-	process.env.LOCALSTACK_ENDPOINT = `http://${host}:${port}`;
-	process.env.CONTAINER_ID = container.getId();
-
-	// Create test table
-	const {
-		DynamoDBClient,
-		CreateTableCommand,
-	} = require("@aws-sdk/client-dynamodb");
-	const client = new DynamoDBClient({
-		endpoint: process.env.LOCALSTACK_ENDPOINT,
-		region: "us-east-1",
-		credentials: {
-			accessKeyId: "test",
-			secretAccessKey: "test",
-		},
-	});
-
-	await client.send(
-		new CreateTableCommand({
-			TableName: "TestTable",
-			KeySchema: [
-				{ AttributeName: "pk", KeyType: "HASH" },
-				{ AttributeName: "sk", KeyType: "RANGE" },
-			],
-			AttributeDefinitions: [
-				{ AttributeName: "pk", AttributeType: "S" },
-				{ AttributeName: "sk", AttributeType: "S" },
-				{ AttributeName: "name", AttributeType: "S" },
-			],
-			GlobalSecondaryIndexes: [
-				{
-					IndexName: "name-index",
-					KeySchema: [{ AttributeName: "name", KeyType: "HASH" }],
-					Projection: { ProjectionType: "ALL" },
-					ProvisionedThroughput: {
-						ReadCapacityUnits: 5,
-						WriteCapacityUnits: 5,
-					},
-				},
-			],
-			ProvisionedThroughput: {
-				ReadCapacityUnits: 5,
-				WriteCapacityUnits: 5,
-			},
-		}),
+const startReaper = async () => {
+	const containerRuntimeClient = await getContainerRuntimeClient();
+	await getReaper(containerRuntimeClient);
+	const runningContainers = await containerRuntimeClient.container.list();
+	const reaper = runningContainers.find(
+		(container) => container.Labels["org.testcontainers.ryuk"] === "true",
 	);
-
-	client.destroy();
+	const reaperNetwork = reaper.Ports.find((port) => port.PrivatePort === 8080);
+	const reaperPort = reaperNetwork.PublicPort;
+	const reaperIp = reaperNetwork.IP;
+	const reaperSessionId = reaper.Labels["org.testcontainers.session-id"];
+	return {
+		REAPER: `${reaperIp}:${reaperPort}`,
+		REAPER_SESSION: reaperSessionId,
+	};
 };
+
+const before = async () => {
+	if (!process.env.TEST_LOCAL) {
+		console.log("Start Reaper");
+		const reaperEnv = await startReaper();
+		console.log("Start LocalStack");
+		const { port: localStackPort, host: localStackHost } =
+			await startLocalStack();
+		process.env.LOCALSTACK_ENDPOINT = `http://${localStackHost}:${localStackPort}`;
+		await writeFile(
+			"test-env.json",
+			JSON.stringify({
+				...reaperEnv,
+				LOCALSTACK_ENDPOINT: process.env.LOCALSTACK_ENDPOINT,
+			}),
+		);
+		await bootstrap(localStackHost, localStackPort);
+	}
+};
+
+module.exports = before();
