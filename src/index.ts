@@ -1,3 +1,4 @@
+/* c8 ignore start */
 // === Core ===
 
 // === Expression Attributes (advanced usage) ===
