@@ -2,6 +2,13 @@
 
 A type-safe DynamoDB mapper for Node.js built on top of [@fgiova/mini-dynamo-client](https://github.com/fgiova/mini-dynamo-client).
 
+[![NPM version](https://img.shields.io/npm/v/@fgiova/mini-dynamo-mapper.svg?style=flat)](https://www.npmjs.com/package/@fgiova/mini-dynamo-mapper)
+![CI workflow](https://github.com/fgiova/mini-dynamo-mapper/actions/workflows/node.js.yml/badge.svg)
+[![TypeScript](https://img.shields.io/badge/%3C%2F%3E-TypeScript-%230074c1.svg)](http://www.typescriptlang.org/)
+[![Linted with Biome](https://img.shields.io/badge/Linted_with-Biome-60a5fa?style=flat&logo=biome)](https://biomejs.dev)
+[![Maintainability](https://qlty.sh/gh/fgiova/projects/mini-dynamo-mapper/maintainability.svg)](https://qlty.sh/gh/fgiova/projects/mini-dynamo-mapper)
+[![Code Coverage](https://qlty.sh/gh/fgiova/projects/mini-dynamo-mapper/coverage.svg)](https://qlty.sh/gh/fgiova/projects/mini-dynamo-mapper)
+
 Define your table schema once and get full TypeScript inference for all operations: CRUD, queries, scans, batch, and transactions.
 
 ## Installation
